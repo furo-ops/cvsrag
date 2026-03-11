@@ -1,0 +1,296 @@
+import logging
+import secrets
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Annotated
+
+import aiofiles
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.config import settings
+from app.db import get_collection
+from app.models import SearchQuery
+from app.search import engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Team Profile RAG", version="1.0.0")
+
+BASE_DIR = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
+admin_security = HTTPBasic(auto_error=False)
+
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+
+def _availability_color(profile) -> str:
+    """Return CSS color class for availability badge."""
+    pct = profile.availability_percentage or 0
+    date_str = profile.availability_date
+    now = datetime.now()
+
+    if pct == 0:
+        return "busy"
+
+    if date_str:
+        try:
+            avail_date = datetime.fromisoformat(date_str)
+            if avail_date <= now:
+                return "available"
+            elif avail_date <= now + timedelta(days=30):
+                return "soon"
+            else:
+                return "busy"
+        except ValueError:
+            pass
+
+    return "available" if pct > 0 else "busy"
+
+
+def _safe_upload_name(filename: str, allowed_exts: set[str]) -> str:
+    """Validate upload filename and return safe basename only."""
+    name = Path(filename).name
+    if name != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if Path(name).suffix.lower() not in allowed_exts:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    return name
+
+
+def _check_upload_size(content: bytes) -> None:
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max allowed size is {settings.max_upload_mb} MB",
+        )
+
+
+def _require_admin_auth(
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(admin_security)],
+) -> None:
+    """Protect admin routes when ADMIN_USERNAME + ADMIN_PASSWORD are configured."""
+    if not settings.admin_username or not settings.admin_password:
+        return
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    username_ok = secrets.compare_digest(credentials.username, settings.admin_username)
+    password_ok = secrets.compare_digest(credentials.password, settings.admin_password)
+    if not (username_ok and password_ok):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+# ─── Routes ─────────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def search_page(request: Request):
+    collection = get_collection()
+    total = collection.count()
+
+    skills = engine.get_all_skills() if total > 0 else []
+    certifications = engine.get_all_certifications() if total > 0 else []
+    grades = engine.get_all_grades() if total > 0 else []
+    locations = engine.get_all_locations() if total > 0 else []
+
+    return templates.TemplateResponse(
+        "search.html",
+        {
+            "request": request,
+            "total_profiles": total,
+            "all_skills": skills,
+            "all_certifications": certifications,
+            "all_grades": grades,
+            "all_locations": locations,
+        },
+    )
+
+
+@app.post("/search", response_class=HTMLResponse)
+async def do_search(
+    request: Request,
+    query: str = Form(""),
+    mode: str = Form("smart"),
+    skills: list[str] = Form(default=[]),
+    certifications: list[str] = Form(default=[]),
+    availability_status: str = Form(""),
+    availability_percentage_min: str = Form(""),
+    grade: str = Form(""),
+    location: str = Form(""),
+):
+    search_query = SearchQuery(
+        query=query,
+        mode=mode,
+        skills=skills,
+        certifications=certifications,
+        availability_status=availability_status or None,
+        availability_percentage_min=int(availability_percentage_min) if availability_percentage_min else None,
+        grade=grade or None,
+        location=location or None,
+    )
+
+    results = engine.search(search_query)
+
+    return templates.TemplateResponse(
+        "partials/results.html",
+        {
+            "request": request,
+            "results": results,
+            "query": query,
+            "availability_color": _availability_color,
+        },
+    )
+
+
+@app.get("/profile/{profile_id}", response_class=HTMLResponse)
+async def profile_detail(request: Request, profile_id: str):
+    profile = engine.get_profile_by_id(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    return templates.TemplateResponse(
+        "profile_detail.html",
+        {
+            "request": request,
+            "profile": profile,
+            "availability_color": _availability_color(profile),
+        },
+    )
+
+
+@app.get("/download/{profile_id}")
+async def download_cv(profile_id: str):
+    profile = engine.get_profile_by_id(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    cv_path = Path(settings.cv_directory) / profile.source_file
+    if not cv_path.exists():
+        raise HTTPException(status_code=404, detail="Original CV file not found")
+
+    return FileResponse(
+        path=str(cv_path),
+        filename=profile.source_file,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
+# ─── Admin ───────────────────────────────────────────────────────────────────
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request, _: None = Depends(_require_admin_auth)):
+    collection = get_collection()
+    total = collection.count()
+
+    missing_avail = []
+    stale = []
+    last_ingestion = None
+    six_months_ago = datetime.now() - timedelta(days=180)
+
+    if total > 0:
+        all_docs = collection.get(include=["metadatas"])
+        for meta in all_docs["metadatas"]:
+            if not meta.get("availability_date") and not meta.get("availability_percentage"):
+                missing_avail.append(meta.get("name", "Unknown"))
+
+            updated_str = meta.get("last_updated", "")
+            if updated_str:
+                try:
+                    updated = datetime.fromisoformat(updated_str)
+                    if updated < six_months_ago:
+                        stale.append(meta.get("name", "Unknown"))
+                    if last_ingestion is None or updated > last_ingestion:
+                        last_ingestion = updated
+                except ValueError:
+                    pass
+
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "total_profiles": total,
+            "last_ingestion": last_ingestion.strftime("%Y-%m-%d %H:%M") if last_ingestion else "Never",
+            "missing_availability": missing_avail,
+            "stale_profiles": stale,
+        },
+    )
+
+
+@app.post("/admin/reindex")
+async def reindex(force: bool = False, _: None = Depends(_require_admin_auth)):
+    """Trigger CV re-ingestion in a subprocess."""
+    script = Path(__file__).parent.parent / "scripts" / "ingest_cvs.py"
+    cmd = [sys.executable, str(script)]
+    if force:
+        cmd.append("--force")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        return JSONResponse(
+            {
+                "status": "ok" if result.returncode == 0 else "error",
+                "stdout": result.stdout[-3000:],
+                "stderr": result.stderr[-1000:],
+            }
+        )
+    except subprocess.TimeoutExpired:
+        return JSONResponse({"status": "timeout", "message": "Ingestion is still running"})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/admin/upload-cv")
+async def upload_cv(file: UploadFile = File(...), _: None = Depends(_require_admin_auth)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    safe_name = _safe_upload_name(file.filename, {".pptx"})
+    if not safe_name.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="Only .pptx files are accepted")
+
+    dest = Path(settings.cv_directory) / safe_name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    async with aiofiles.open(dest, "wb") as f:
+        content = await file.read()
+        _check_upload_size(content)
+        await f.write(content)
+
+    logger.info(f"Uploaded CV: {safe_name}")
+    return JSONResponse({"status": "ok", "filename": safe_name})
+
+
+@app.post("/admin/upload-availability")
+async def upload_availability(file: UploadFile = File(...), _: None = Depends(_require_admin_auth)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    safe_name = _safe_upload_name(file.filename, {".csv", ".xlsx"})
+    if not (safe_name.lower().endswith(".csv") or safe_name.lower().endswith(".xlsx")):
+        raise HTTPException(status_code=400, detail="Only CSV or Excel files are accepted")
+
+    dest = Path(settings.availability_file)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    async with aiofiles.open(dest, "wb") as f:
+        content = await file.read()
+        _check_upload_size(content)
+        await f.write(content)
+
+    logger.info(f"Uploaded availability data: {safe_name}")
+    return JSONResponse({"status": "ok", "filename": safe_name})

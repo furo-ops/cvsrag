@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+
+{% block content %}
+<div class="search-layout">
+
+  <!-- Sidebar Filters -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h3>Filters</h3>
+      <button class="btn-link" onclick="clearFilters()">Clear all</button>
+    </div>
+
+    <form id="search-form"
+          hx-post="/search"
+          hx-target="#results-container"
+          hx-swap="innerHTML"
+          hx-indicator="#search-spinner">
+
+      <!-- Hidden query field synced from search bar -->
+      <input type="hidden" name="query" id="hidden-query">
+
+      <!-- Search mode toggle -->
+      <div class="filter-group">
+        <label class="filter-label">Search Mode</label>
+        <div class="mode-toggle">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="smart" checked>
+            <span>Smart (AI)</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="quick">
+            <span>Quick Filter</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Skills -->
+      <div class="filter-group">
+        <label class="filter-label">Skills</label>
+        <div class="tag-select" id="skills-select">
+          {% for skill in all_skills %}
+          <label class="tag-option">
+            <input type="checkbox" name="skills" value="{{ skill }}">
+            <span>{{ skill }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Certifications -->
+      <div class="filter-group">
+        <label class="filter-label">Certifications</label>
+        <div class="tag-select" id="certs-select">
+          {% for cert in all_certifications %}
+          <label class="tag-option">
+            <input type="checkbox" name="certifications" value="{{ cert }}">
+            <span>{{ cert }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Availability status -->
+      <div class="filter-group">
+        <label class="filter-label">Availability</label>
+        <select name="availability_status" class="filter-select">
+          <option value="">Any</option>
+          <option value="now">Available now</option>
+          <option value="30days">Within 30 days</option>
+          <option value="90days">Within 90 days</option>
+        </select>
+      </div>
+
+      <!-- Availability % -->
+      <div class="filter-group">
+        <label class="filter-label">Min. availability: <span id="avail-pct-label">0</span>%</label>
+        <input type="range" name="availability_percentage_min" min="0" max="100" value="0"
+               class="filter-range" oninput="document.getElementById('avail-pct-label').textContent=this.value">
+      </div>
+
+      <!-- Grade -->
+      <div class="filter-group">
+        <label class="filter-label">Grade / Level</label>
+        <select name="grade" class="filter-select">
+          <option value="">Any</option>
+          {% for grade in all_grades %}
+          <option value="{{ grade }}">{{ grade }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Location -->
+      <div class="filter-group">
+        <label class="filter-label">Location</label>
+        <select name="location" class="filter-select">
+          <option value="">Any</option>
+          {% for loc in all_locations %}
+          <option value="{{ loc }}">{{ loc }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+    </form>
+  </aside>
+
+  <!-- Main search area -->
+  <div class="search-main">
+
+    <!-- Search bar -->
+    <div class="search-bar-wrapper">
+      <div class="search-bar-container">
+        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+        </svg>
+        <input
+          type="text"
+          id="main-search"
+          class="search-input"
+          placeholder="e.g. &quot;Azure expert with AI certifications available next month&quot;"
+          autocomplete="off"
+        >
+        <div id="search-spinner" class="htmx-indicator spinner"></div>
+      </div>
+      <button class="btn-search" onclick="triggerSearch()">Search</button>
+    </div>
+
+    <p class="search-hint">
+      {{ total_profiles }} profiles indexed &nbsp;·&nbsp;
+      Try: "data engineer with Databricks available 50%", "Python ML specialist in Madrid"
+    </p>
+
+    <!-- Results -->
+    <div id="results-container">
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
+        </svg>
+        <p>Enter a search query to find team members</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Sync main search bar with hidden form field and trigger on Enter
+  const mainSearch = document.getElementById('main-search');
+  const hiddenQuery = document.getElementById('hidden-query');
+
+  mainSearch.addEventListener('input', () => {
+    hiddenQuery.value = mainSearch.value;
+  });
+
+  mainSearch.addEventListener('keydown', e => {
+    if (e.key === 'Enter') triggerSearch();
+  });
+
+  function triggerSearch() {
+    hiddenQuery.value = mainSearch.value;
+    htmx.trigger('#search-form', 'submit');
+  }
+
+  function clearFilters() {
+    document.querySelectorAll('#search-form input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#search-form select').forEach(sel => sel.selectedIndex = 0);
+    document.querySelector('#search-form input[type="range"]').value = 0;
+    document.getElementById('avail-pct-label').textContent = '0';
+    document.querySelector('input[name="mode"][value="smart"]').checked = true;
+  }
+</script>
+{% endblock %}

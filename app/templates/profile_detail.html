@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.name }}{% endblock %}
+
+{% block content %}
+<div class="profile-detail-layout">
+
+  <div class="detail-header">
+    <a href="/" class="back-link">← Back to search</a>
+    <div class="detail-title-row">
+      <h1>{{ profile.name }}</h1>
+      <span class="grade-badge grade-badge-lg">{{ profile.grade or "—" }}</span>
+    </div>
+    <div class="detail-meta">
+      <span>📍 {{ profile.location or "Location unknown" }}</span>
+      {% if profile.years_of_experience %}
+      <span>· {{ profile.years_of_experience }} years of experience</span>
+      {% endif %}
+    </div>
+
+    <!-- Availability banner -->
+    <div class="avail-banner avail-{{ availability_color }}">
+      {% if availability_color == "available" %}
+        ✅ Available now · {{ profile.availability_percentage or 0 }}% capacity
+      {% elif availability_color == "soon" %}
+        🟡 Available {{ profile.availability_date }} · {{ profile.availability_percentage or 0 }}%
+      {% else %}
+        🔴 Currently engaged{% if profile.current_project %} — {{ profile.current_project }}{% endif %}
+      {% endif %}
+    </div>
+
+    <div class="detail-actions">
+      <a class="btn-primary" href="/download/{{ profile.id }}">↓ Download CV (.pptx)</a>
+    </div>
+  </div>
+
+  <div class="detail-body">
+
+    <!-- Left column -->
+    <div class="detail-main">
+      {% if profile.experience_summary %}
+      <section class="detail-section">
+        <h2>Experience Summary</h2>
+        <p>{{ profile.experience_summary }}</p>
+      </section>
+      {% endif %}
+
+      {% if profile.domains %}
+      <section class="detail-section">
+        <h2>Domain Expertise</h2>
+        <ul class="domain-list">
+          {% for domain in profile.domains %}
+          <li>{{ domain }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if profile.education %}
+      <section class="detail-section">
+        <h2>Education</h2>
+        <p>{{ profile.education }}</p>
+      </section>
+      {% endif %}
+
+      <section class="detail-section">
+        <h2>Full CV Text</h2>
+        <div class="raw-text-box">{{ profile.raw_text }}</div>
+      </section>
+    </div>
+
+    <!-- Right column -->
+    <aside class="detail-sidebar">
+
+      {% if profile.skills %}
+      <div class="detail-sidebar-card">
+        <h3>Skills</h3>
+        <div class="skill-cloud">
+          {% for skill in profile.skills %}
+          <span class="skill-tag">{{ skill }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if profile.certifications %}
+      <div class="detail-sidebar-card">
+        <h3>Certifications</h3>
+        <div class="skill-cloud">
+          {% for cert in profile.certifications %}
+          <span class="skill-tag cert-tag">{{ cert }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if profile.languages %}
+      <div class="detail-sidebar-card">
+        <h3>Languages</h3>
+        <div class="skill-cloud">
+          {% for lang in profile.languages %}
+          <span class="skill-tag">{{ lang }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="detail-sidebar-card">
+        <h3>Availability</h3>
+        <dl class="avail-details">
+          <dt>Status</dt>
+          <dd class="avail-{{ availability_color }}">
+            {{ "Available" if availability_color == "available" else "Soon" if availability_color == "soon" else "Busy" }}
+          </dd>
+          {% if profile.availability_percentage is not none %}
+          <dt>Capacity</dt>
+          <dd>{{ profile.availability_percentage }}%</dd>
+          {% endif %}
+          {% if profile.availability_date %}
+          <dt>From</dt>
+          <dd>{{ profile.availability_date }}</dd>
+          {% endif %}
+          {% if profile.current_project %}
+          <dt>Current project</dt>
+          <dd>{{ profile.current_project }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+
+      <div class="detail-sidebar-card">
+        <h3>Profile info</h3>
+        <dl class="avail-details">
+          <dt>Source file</dt>
+          <dd>{{ profile.source_file }}</dd>
+          {% if profile.last_updated %}
+          <dt>Last indexed</dt>
+          <dd>{{ profile.last_updated[:10] }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </aside>
+
+  </div>
+</div>
+{% endblock %}

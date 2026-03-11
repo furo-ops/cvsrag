@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Team Profiles{% endblock %} — RAG Search</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" crossorigin="anonymous"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/">
+        <span class="nav-logo">▣</span>
+        <span>Team Profiles</span>
+      </a>
+      <div class="nav-links">
+        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Search</a>
+        <a href="/admin" class="nav-link {% if request.url.path == '/admin' %}active{% endif %}">Admin</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

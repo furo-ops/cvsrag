@@ -1,0 +1,116 @@
+{% if not results %}
+<div class="empty-state">
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+  </svg>
+  <p>No profiles matched your query. Try different keywords or relax the filters.</p>
+</div>
+{% else %}
+<p class="results-count">{{ results|length }} profile{{ 's' if results|length != 1 }} found{% if query %} for "<strong>{{ query }}</strong>"{% endif %}</p>
+
+<div class="results-grid">
+{% for result in results %}
+{% set p = result.profile %}
+{% set avail_cls = availability_color(p) %}
+
+<div class="profile-card" id="card-{{ p.id }}">
+  <div class="card-header">
+    <div class="card-title-row">
+      <h3 class="card-name">{{ p.name }}</h3>
+      <span class="grade-badge">{{ p.grade or "—" }}</span>
+    </div>
+    <div class="card-meta">
+      <span class="location-tag">📍 {{ p.location or "Location unknown" }}</span>
+    </div>
+  </div>
+
+  <!-- Skills -->
+  <div class="card-skills">
+    {% set highlighted = result.highlighted_skills | map('lower') | list %}
+    {% for skill in p.skills[:8] %}
+    <span class="skill-tag {% if skill|lower in highlighted %}skill-highlight{% endif %}">{{ skill }}</span>
+    {% endfor %}
+    {% if p.skills|length > 8 %}
+    <span class="skill-tag skill-more">+{{ p.skills|length - 8 }} more</span>
+    {% endif %}
+  </div>
+
+  <!-- Availability -->
+  <div class="card-availability avail-{{ avail_cls }}">
+    <span class="avail-dot"></span>
+    <span class="avail-text">
+      {% if avail_cls == "available" %}
+        Available · {{ p.availability_percentage or 0 }}% capacity
+      {% elif avail_cls == "soon" %}
+        Available {{ p.availability_date }} · {{ p.availability_percentage or 0 }}%
+      {% else %}
+        Busy{% if p.current_project %} — {{ p.current_project }}{% endif %}
+      {% endif %}
+    </span>
+  </div>
+
+  <!-- Match score -->
+  <div class="card-score">
+    <div class="score-bar">
+      <div class="score-fill" style="width: {{ (result.score * 100) | int }}%"></div>
+    </div>
+    <span class="score-label">{{ (result.score * 100) | int }}% match</span>
+  </div>
+
+  <!-- Actions -->
+  <div class="card-actions">
+    <button class="btn-expand" onclick="toggleExpand('{{ p.id }}')">View profile</button>
+    <a class="btn-download" href="/download/{{ p.id }}" title="Download original CV">↓ CV</a>
+  </div>
+
+  <!-- Expanded detail -->
+  <div class="card-expanded" id="expand-{{ p.id }}" style="display:none">
+    {% if result.match_reasoning %}
+    <div class="why-match">
+      <strong>Why this match:</strong>
+      <p>{{ result.match_reasoning }}</p>
+      {% if result.gaps %}
+      <p class="gaps-text"><em>Gaps: {{ result.gaps }}</em></p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if p.certifications %}
+    <div class="expanded-section">
+      <strong>Certifications</strong>
+      <div class="card-skills">
+        {% for cert in p.certifications %}
+        <span class="skill-tag cert-tag">{{ cert }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if p.domains %}
+    <div class="expanded-section">
+      <strong>Domain expertise</strong>
+      <p>{{ p.domains | join(", ") }}</p>
+    </div>
+    {% endif %}
+
+    {% if p.experience_summary %}
+    <div class="expanded-section">
+      <strong>Experience</strong>
+      <p>{{ p.experience_summary }}</p>
+    </div>
+    {% endif %}
+
+    {% if p.education %}
+    <div class="expanded-section">
+      <strong>Education</strong>
+      <p>{{ p.education }}</p>
+    </div>
+    {% endif %}
+
+    <a href="/profile/{{ p.id }}" class="btn-full-profile">Full profile →</a>
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+
+{% block content %}
+<div class="admin-layout">
+
+  <h1 class="page-title">Admin Dashboard</h1>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_profiles }}</div>
+      <div class="stat-label">Profiles indexed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ last_ingestion }}</div>
+      <div class="stat-label">Last ingestion</div>
+    </div>
+    <div class="stat-card {% if missing_availability %}stat-warn{% endif %}">
+      <div class="stat-value">{{ missing_availability|length }}</div>
+      <div class="stat-label">Missing availability</div>
+    </div>
+    <div class="stat-card {% if stale_profiles %}stat-warn{% endif %}">
+      <div class="stat-value">{{ stale_profiles|length }}</div>
+      <div class="stat-label">Stale (&gt;6 months)</div>
+    </div>
+  </div>
+
+  <div class="admin-grid">
+
+    <!-- Re-index -->
+    <div class="admin-card">
+      <h2>Re-index CVs</h2>
+      <p>Scan the <code>./data/cvs/</code> directory and update the vector index. Only changed files are re-processed unless "Force" is checked.</p>
+      <div class="admin-actions">
+        <label class="checkbox-label">
+          <input type="checkbox" id="force-reindex">
+          Force re-index all
+        </label>
+        <button class="btn-primary" onclick="triggerReindex()">Re-index</button>
+      </div>
+      <div id="reindex-log" class="log-box" style="display:none"></div>
+    </div>
+
+    <!-- Upload CV -->
+    <div class="admin-card">
+      <h2>Upload CV</h2>
+      <p>Upload a new <code>.pptx</code> file to add or replace a profile. Run re-index after uploading.</p>
+      <div class="upload-area" id="cv-drop-zone">
+        <p>Drag & drop or click to select a <code>.pptx</code> file</p>
+        <input type="file" id="cv-file-input" accept=".pptx" style="display:none">
+      </div>
+      <div id="cv-upload-status" class="upload-status"></div>
+    </div>
+
+    <!-- Upload availability -->
+    <div class="admin-card">
+      <h2>Update Availability Data</h2>
+      <p>Upload a CSV or Excel file with columns: <code>name, current_project, availability_date, availability_percentage, location, grade</code>. Run re-index after uploading to apply changes.</p>
+      <div class="upload-area" id="avail-drop-zone">
+        <p>Drag & drop or click to select a <code>.csv</code> or <code>.xlsx</code> file</p>
+        <input type="file" id="avail-file-input" accept=".csv,.xlsx" style="display:none">
+      </div>
+      <div id="avail-upload-status" class="upload-status"></div>
+    </div>
+
+    <!-- Missing availability -->
+    {% if missing_availability %}
+    <div class="admin-card admin-card-warn">
+      <h2>Profiles Missing Availability Data</h2>
+      <ul class="profile-list">
+        {% for name in missing_availability %}
+        <li>{{ name }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Stale profiles -->
+    {% if stale_profiles %}
+    <div class="admin-card admin-card-warn">
+      <h2>Stale Profiles (&gt;6 months old)</h2>
+      <ul class="profile-list">
+        {% for name in stale_profiles %}
+        <li>{{ name }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<script>
+async function triggerReindex() {
+  const force = document.getElementById('force-reindex').checked;
+  const log = document.getElementById('reindex-log');
+  log.style.display = 'block';
+  log.textContent = 'Running ingestion...';
+
+  const resp = await fetch(`/admin/reindex?force=${force}`, { method: 'POST' });
+  const data = await resp.json();
+  log.textContent = data.stdout || data.message || JSON.stringify(data);
+  if (data.stderr) log.textContent += '\n\nSTDERR:\n' + data.stderr;
+}
+
+function setupUpload(dropZoneId, inputId, endpoint, statusId) {
+  const zone = document.getElementById(dropZoneId);
+  const input = document.getElementById(inputId);
+  const status = document.getElementById(statusId);
+
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0], endpoint, status);
+  });
+  input.addEventListener('change', () => {
+    if (input.files[0]) uploadFile(input.files[0], endpoint, status);
+  });
+}
+
+async function uploadFile(file, endpoint, statusEl) {
+  statusEl.textContent = `Uploading ${file.name}...`;
+  statusEl.className = 'upload-status';
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const resp = await fetch(endpoint, { method: 'POST', body: form });
+    const data = await resp.json();
+    if (resp.ok) {
+      statusEl.textContent = `✅ ${file.name} uploaded successfully.`;
+      statusEl.className = 'upload-status ok';
+    } else {
+      statusEl.textContent = `❌ Error: ${data.detail || 'Upload failed'}`;
+      statusEl.className = 'upload-status error';
+    }
+  } catch (e) {
+    statusEl.textContent = `❌ Network error: ${e.message}`;
+    statusEl.className = 'upload-status error';
+  }
+}
+
+setupUpload('cv-drop-zone', 'cv-file-input', '/admin/upload-cv', 'cv-upload-status');
+setupUpload('avail-drop-zone', 'avail-file-input', '/admin/upload-availability', 'avail-upload-status');
+</script>
+{% endblock %}

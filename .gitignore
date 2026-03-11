@@ -1,0 +1,54 @@
+﻿# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+cvs/
+
+# Environment files
+.env
+.env.*
+!.env.example
+.envrc
+
+# Local databases / vector store / generated data
+/data/chroma_db/
+*.db
+*.db-shm
+*.db-wal
+*.faiss
+
+# Local uploaded/generated CV data (keep folder structure only)
+/data/cvs/
+/data/availability.csv
+
+# OS/editor/tooling
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude/Codex local prompts and agent folders
+.claude/
+claude-code-prompt*
+cvrag/
+
+# Secrets and key material
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_ed25519
+secrets.*
+*.secret
+
+# Logs
+*.log

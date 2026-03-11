@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CHROMA_DB_PATH=/app/data/chroma_db
+      - CV_DIRECTORY=/app/data/cvs
+      - AVAILABILITY_FILE=/app/data/availability.csv
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - LLM_MODEL=claude-sonnet-4-20250514
+      - TOP_K_RESULTS=20
+      - RERANK_TOP_N=10
+    volumes:
+      # Persist data across container restarts
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
